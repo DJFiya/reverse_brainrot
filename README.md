@@ -44,4 +44,4 @@ This project is currently in **prototype** stage, with core mechanics implemente
 
 1. Run the app with Python:
    ```bash
-   python reverse_brainrot.py
+   python main.py
