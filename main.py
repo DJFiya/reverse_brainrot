@@ -1,10 +1,14 @@
 import sys
-from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QPushButton, QHBoxLayout
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QLabel, QVBoxLayout, QPushButton,
+    QHBoxLayout, QProgressBar
+)
 from PyQt6.QtCore import QTimer, Qt, QEvent
+from PyQt6.QtGui import QFont
 
 DEBUG = True
 
-class ReverseBrainrotApp(QWidget):
+class GameConfig:
     BADGE_TIERS = [
         ("None", 0),
         ("Copper", 10),
@@ -16,7 +20,6 @@ class ReverseBrainrotApp(QWidget):
         ("Emerald", 1000)
     ]
 
-    # XP thresholds for levels
     LEVEL_THRESHOLDS = [
         (1, 0),
         (2, 50),
@@ -30,11 +33,17 @@ class ReverseBrainrotApp(QWidget):
         (10, 1320),
     ]
 
+    XP_GAIN = 5
+    PENALTY_XP_LOSS = 10
+    PENALTY_RESET_TICKS = 5
+
+
+class ReverseBrainrotApp(QWidget):
     def __init__(self):
         super().__init__()
-
         self.setWindowTitle("reverse_brainrot")
-        self.setGeometry(300, 300, 350, 400)
+        self.setGeometry(300, 300, 400, 450)
+        self.setStyleSheet("background-color: #121212; color: #eeeeee;")
 
         self.focused = True
         self.coins = 0
@@ -49,10 +58,10 @@ class ReverseBrainrotApp(QWidget):
     def init_ui(self):
         main_layout = QVBoxLayout()
         top_bar = QHBoxLayout()
-
         top_bar.addStretch()
 
-        self.badge_label = QLabel(self.BADGE_TIERS[self.badge_index][0])
+        # Badge Label
+        self.badge_label = QLabel(GameConfig.BADGE_TIERS[self.badge_index][0])
         self.badge_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         self.badge_label.setStyleSheet("""
             font-weight: bold;
@@ -64,26 +73,44 @@ class ReverseBrainrotApp(QWidget):
             min-width: 80px;
         """)
         top_bar.addWidget(self.badge_label)
-
         main_layout.addLayout(top_bar)
 
-        self.pet_label = QLabel("🐣")  # Placeholder Tamagotchi emoji
+        # Pet Display
+        self.pet_label = QLabel("🐣")
         self.pet_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.pet_label.setStyleSheet("font-size: 100px;")
+        main_layout.addWidget(self.pet_label)
 
-        self.status_label = QLabel(f"Level: {self.level} | XP: {self.xp} | Coins: {self.coins}")
+        # Status Label
+        self.status_label = QLabel()
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet("font-size: 16px;")
+        main_layout.addWidget(self.status_label)
 
+        # XP Progress Bar
+        self.xp_bar = QProgressBar()
+        self.xp_bar.setStyleSheet("""
+            QProgressBar {
+                background-color: #333;
+                border: 1px solid #666;
+                border-radius: 6px;
+                height: 18px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background-color: #50c878;
+            }
+        """)
+        main_layout.addWidget(self.xp_bar)
+
+        # Reward Button
         self.reward_button = QPushButton("Claim Reward")
         self.reward_button.setEnabled(False)
         self.reward_button.clicked.connect(self.claim_reward)
-
-        main_layout.addWidget(self.pet_label)
-        main_layout.addWidget(self.status_label)
         main_layout.addWidget(self.reward_button)
 
         self.setLayout(main_layout)
+        self.update_status()
 
     def init_timers(self):
         self.focus_timer = QTimer()
@@ -98,8 +125,7 @@ class ReverseBrainrotApp(QWidget):
         if self.focused:
             if DEBUG:
                 print("focused")
-            # Gain XP and coins proportional to current level
-            self.xp += 5
+            self.xp += GameConfig.XP_GAIN
             self.coins += self.level
             self.update_level()
             self.check_reward_availability()
@@ -110,18 +136,16 @@ class ReverseBrainrotApp(QWidget):
             if DEBUG:
                 print("unfocused")
             self.penalty_accumulated += 1
-            # Lose XP on penalty ticks
-            self.xp = max(0, self.xp - 10)
-            if self.penalty_accumulated >= 5:
+            self.xp = max(0, self.xp - GameConfig.PENALTY_XP_LOSS)
+            if self.penalty_accumulated >= GameConfig.PENALTY_RESET_TICKS:
                 self.penalty_accumulated = 0
             self.update_level()
             self.check_reward_availability()
             self.update_status()
 
     def update_level(self):
-        # Find highest level where XP >= threshold
         new_level = 1
-        for lvl, thresh in reversed(self.LEVEL_THRESHOLDS):
+        for lvl, thresh in reversed(GameConfig.LEVEL_THRESHOLDS):
             if self.xp >= thresh:
                 new_level = lvl
                 break
@@ -133,13 +157,10 @@ class ReverseBrainrotApp(QWidget):
 
     def check_reward_availability(self):
         next_tier = self.badge_index + 1
-        if next_tier < len(self.BADGE_TIERS):
-            cost = self.BADGE_TIERS[next_tier][1]
-            tier_name = self.BADGE_TIERS[next_tier][0]
-            if self.coins >= cost:
-                self.reward_button.setEnabled(True)
-            else:
-                self.reward_button.setEnabled(False)
+        if next_tier < len(GameConfig.BADGE_TIERS):
+            cost = GameConfig.BADGE_TIERS[next_tier][1]
+            tier_name = GameConfig.BADGE_TIERS[next_tier][0]
+            self.reward_button.setEnabled(self.coins >= cost)
             self.reward_button.setText(f"Claim {tier_name} Badge ({cost} coins)")
         else:
             self.reward_button.setEnabled(False)
@@ -147,13 +168,13 @@ class ReverseBrainrotApp(QWidget):
 
     def claim_reward(self):
         next_tier = self.badge_index + 1
-        if next_tier >= len(self.BADGE_TIERS):
+        if next_tier >= len(GameConfig.BADGE_TIERS):
             if DEBUG:
                 print("No more tiers available.")
             self.reward_button.setEnabled(False)
             return
 
-        cost = self.BADGE_TIERS[next_tier][1]
+        cost = GameConfig.BADGE_TIERS[next_tier][1]
         if self.coins >= cost:
             self.coins -= cost
             self.badge_index = next_tier
@@ -161,11 +182,11 @@ class ReverseBrainrotApp(QWidget):
             self.reward_button.setEnabled(False)
             self.update_status()
             if DEBUG:
-                print(f"Upgraded to {self.BADGE_TIERS[self.badge_index][0]} badge.")
+                print(f"Upgraded to {GameConfig.BADGE_TIERS[self.badge_index][0]} badge.")
 
     def update_badge(self):
-        badge_name = self.BADGE_TIERS[self.badge_index][0]
-        colors = { # Temporarily stored here, will be more dynamic later, this is prototype.
+        badge_name = GameConfig.BADGE_TIERS[self.badge_index][0]
+        colors = {
             "None": "#ccc",
             "Copper": "#b87333",
             "Bronze": "#cd7f32",
@@ -189,6 +210,21 @@ class ReverseBrainrotApp(QWidget):
 
     def update_status(self):
         self.status_label.setText(f"Level: {self.level} | XP: {self.xp} | Coins: {self.coins}")
+        self.update_xp_bar()
+
+    def update_xp_bar(self):
+        current = self.xp
+        for i, (level, threshold) in enumerate(GameConfig.LEVEL_THRESHOLDS):
+            if level == self.level:
+                current_level_thresh = threshold
+                next_level_thresh = (
+                    GameConfig.LEVEL_THRESHOLDS[i + 1][1]
+                    if i + 1 < len(GameConfig.LEVEL_THRESHOLDS)
+                    else threshold + 100
+                )
+                break
+        self.xp_bar.setRange(0, next_level_thresh - current_level_thresh)
+        self.xp_bar.setValue(current - current_level_thresh)
 
     def changeEvent(self, event):
         if event.type() == QEvent.Type.ActivationChange:
@@ -205,8 +241,10 @@ class ReverseBrainrotApp(QWidget):
             self.update_status()
         super().changeEvent(event)
 
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setFont(QFont("Segoe UI", 10))
     window = ReverseBrainrotApp()
     window.show()
     sys.exit(app.exec())
