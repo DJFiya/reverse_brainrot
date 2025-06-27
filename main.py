@@ -65,33 +65,29 @@ class ReverseBrainrotApp(QWidget):
 
     def init_ui(self):
         main_layout = QVBoxLayout()
+        
+        # Top bar with badge
         top_bar = QHBoxLayout()
         top_bar.addStretch()
 
         self.badge_label = QLabel(GameConfig.BADGE_TIERS[self.badge_index][0])
         self.badge_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-        self.badge_label.setStyleSheet("""
-            font-weight: bold;
-            font-size: 14px;
-            padding: 6px 12px;
-            border-radius: 8px;
-            background-color: #ccc;
-            color: #333;
-            min-width: 80px;
-        """)
         top_bar.addWidget(self.badge_label)
         main_layout.addLayout(top_bar)
 
+        # Pet display
         self.pet_label = QLabel()
         self.pet_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.pet_label.setStyleSheet("font-size: 100px;")
         main_layout.addWidget(self.pet_label)
 
+        # Status display
         self.status_label = QLabel()
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet("font-size: 16px;")
         main_layout.addWidget(self.status_label)
 
+        # XP progress bar
         self.xp_bar = QProgressBar()
         self.xp_bar.setStyleSheet("""
             QProgressBar {
@@ -107,20 +103,26 @@ class ReverseBrainrotApp(QWidget):
         """)
         main_layout.addWidget(self.xp_bar)
 
+        # Reward button
         self.reward_button = QPushButton("Claim Reward")
         self.reward_button.setEnabled(False)
         self.reward_button.clicked.connect(self.claim_reward)
         main_layout.addWidget(self.reward_button)
 
         self.setLayout(main_layout)
+        
+        # Initialize display
         self.update_status()
         self.update_pet_stage()
+        self.update_badge()
 
     def init_timers(self):
+        # Focus timer - ticks every second when focused
         self.focus_timer = QTimer()
         self.focus_timer.timeout.connect(self.focus_tick)
         self.focus_timer.start(1000)
 
+        # Penalty timer - only starts when unfocused
         self.penalty_timer = QTimer()
         self.penalty_timer.timeout.connect(self.penalty_tick)
         self.penalty_timer.setInterval(1000)
@@ -141,8 +143,11 @@ class ReverseBrainrotApp(QWidget):
                 print("unfocused")
             self.penalty_accumulated += 1
             self.xp = max(0, self.xp - GameConfig.PENALTY_XP_LOSS)
+            
+            # Reset penalty counter after specified ticks
             if self.penalty_accumulated >= GameConfig.PENALTY_RESET_TICKS:
                 self.penalty_accumulated = 0
+                
             self.update_level()
             self.check_reward_availability()
             self.update_status()
@@ -176,7 +181,6 @@ class ReverseBrainrotApp(QWidget):
         if next_tier >= len(GameConfig.BADGE_TIERS):
             if DEBUG:
                 print("No more tiers available.")
-            self.reward_button.setEnabled(False)
             return
 
         cost = GameConfig.BADGE_TIERS[next_tier][1]
@@ -184,7 +188,7 @@ class ReverseBrainrotApp(QWidget):
             self.coins -= cost
             self.badge_index = next_tier
             self.update_badge()
-            self.reward_button.setEnabled(False)
+            self.check_reward_availability()  # Update button state immediately
             self.update_status()
             if DEBUG:
                 print(f"Upgraded to {GameConfig.BADGE_TIERS[self.badge_index][0]} badge.")
@@ -214,28 +218,40 @@ class ReverseBrainrotApp(QWidget):
         """)
 
     def update_pet_stage(self):
+        pet_emoji = "🐣"  # Default to baby
         for level_req, emoji in reversed(GameConfig.PET_STAGES):
             if self.level >= level_req:
-                self.pet_label.setText(emoji)
+                pet_emoji = emoji
                 break
+        self.pet_label.setText(pet_emoji)
 
     def update_status(self):
-        self.status_label.setText(f"Level: {self.level} | XP: {self.xp} | Coins: {self.coins}")
+        focus_status = "Focused" if self.focused else f"Unfocused ({self.penalty_accumulated}s)"
+        self.status_label.setText(f"Level: {self.level} | XP: {self.xp} | Coins: {self.coins} | {focus_status}")
         self.update_xp_bar()
 
     def update_xp_bar(self):
-        current = self.xp
+        current_level_thresh = 0
+        next_level_thresh = 100  # Default fallback
+        
+        # Find current level threshold
         for i, (level, threshold) in enumerate(GameConfig.LEVEL_THRESHOLDS):
             if level == self.level:
                 current_level_thresh = threshold
-                next_level_thresh = (
-                    GameConfig.LEVEL_THRESHOLDS[i + 1][1]
-                    if i + 1 < len(GameConfig.LEVEL_THRESHOLDS)
-                    else threshold + 100
-                )
+                # Get next level threshold
+                if i + 1 < len(GameConfig.LEVEL_THRESHOLDS):
+                    next_level_thresh = GameConfig.LEVEL_THRESHOLDS[i + 1][1]
+                else:
+                    # Max level reached, show full bar
+                    next_level_thresh = current_level_thresh + 100
                 break
-        self.xp_bar.setRange(0, next_level_thresh - current_level_thresh)
-        self.xp_bar.setValue(current - current_level_thresh)
+        
+        # Set progress bar range and value
+        progress_range = next_level_thresh - current_level_thresh
+        progress_value = self.xp - current_level_thresh
+        
+        self.xp_bar.setRange(0, progress_range)
+        self.xp_bar.setValue(max(0, progress_value))
 
     def changeEvent(self, event):
         if event.type() == QEvent.Type.ActivationChange:
@@ -244,6 +260,7 @@ class ReverseBrainrotApp(QWidget):
                     print("Window activated (focused)")
                 self.focused = True
                 self.penalty_timer.stop()
+                self.penalty_accumulated = 0  # Reset penalty counter when refocusing
             else:
                 if DEBUG:
                     print("Window deactivated (unfocused)")
